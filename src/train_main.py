@@ -20,7 +20,6 @@ class TrainMain:
         self.step = 0
         self.val_step = 0
         self.start_epoch = 0
-        # self.train_loader, self.valid_loader = get_train_valid_loader(self.conf)
         self.train_loader = get_train_loader(self.conf)
         self.valid_loader = get_valid_loader(self.conf_val)
         
@@ -31,6 +30,12 @@ class TrainMain:
 
     def train_model(self):
         wandb.init(project='minivision-fas-modified', config=self.conf)
+
+        # Define custom x-axis metrics
+        wandb.define_metric("epoch")
+        # wandb.define_metric("train/*", step_metric="epoch")
+        wandb.define_metric("val/*", step_metric="epoch")
+
         self._init_model_param()
         self._train_stage()
 
@@ -90,13 +95,15 @@ class TrainMain:
                     self.writer.add_scalar('Loss_cls/train', avg_loss_cls, self.step)
                     self.writer.add_scalar('Loss_ft/train', avg_loss_ft, self.step)
 
-                    # Log metrics to wandb
-                    wandb.log({"Loss/train": avg_loss,
-                            "Acc/train": avg_acc,
-                            "Loss_cls/train": avg_loss_cls,
-                            "Loss_ft/train": avg_loss_ft,
-                            "Learning_rate": self.optimizer.param_groups[0]['lr']},
-                            step=self.step)
+                    # Log training metrics to wandb
+                    wandb.log({
+                        "epoch": e,
+                        "train/Loss": avg_loss,
+                        "train/Acc": avg_acc,
+                        "train/Loss_cls": avg_loss_cls,
+                        "train/Loss_ft": avg_loss_ft,
+                        "train/Learning_rate": self.optimizer.param_groups[0]['lr']
+                    }, step=self.step)
 
                     run_loss = 0.
                     run_acc = 0.
@@ -120,8 +127,13 @@ class TrainMain:
             avg_val_acc = val_acc_total / len(self.valid_loader)
             avg_val_loss_cls = val_loss_cls_total / len(self.valid_loader)
 
-            # Log average validation accuracy and loss to wandb and TensorBoard
-            wandb.log({"Avg_Acc/valid": avg_val_acc, "Avg_Loss_cls/valid": avg_val_loss_cls}, step=self.step)
+            # Log validation metrics to wandb and TensorBoard
+            wandb.log({
+                "epoch": e,
+                "val/Avg_Acc": avg_val_acc,
+                "val/Avg_Loss_cls": avg_val_loss_cls
+            })
+            
             self.writer.add_scalar('Acc/valid', avg_val_acc, self.step)
             self.writer.add_scalar('Loss_cls/valid', avg_val_loss_cls, self.step)
 
@@ -199,3 +211,4 @@ class TrainMain:
         torch.save(self.model.state_dict(), best_model_path)
         print(f"Best model (epoch {epoch}, val accuracy: {self.best_val_acc}) saved at {best_model_path}")
         wandb.log({"best_val_acc": self.best_val_acc}, step=epoch)
+
