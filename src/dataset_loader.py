@@ -114,6 +114,55 @@ def transform_labels(labels, categories):
         spoof_transform = lambda t: next(i for i, l in enumerate(categories) if t in l)
     return labels.apply(spoof_transform)
 
+def get_train_loader(cnf):
+    
+    train_transform = T.Compose([
+        T.ToPILImage(),
+        T.Resize((cnf.input_size, cnf.input_size)),
+        T.RandomResizedCrop(size=tuple(2*[cnf.input_size]), scale=(0.9, 1.1)),
+        T.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
+        T.RandomRotation(10),
+        T.RandomHorizontalFlip(),
+        T.ToTensor()
+    ])
+    
+    valid_transform = T.Compose([
+        T.ToPILImage(),
+        #SquarePad(),
+        T.Resize((cnf.input_size, cnf.input_size)),
+        T.ToTensor()
+    ])
+    
+    # Load labels
+    train_labels = pd.read_csv(cnf.labels_path)
+    
+    # Transform labels if necessary
+    if cnf.spoof_categories is not None:
+        train_labels.iloc[:,1] = transform_labels(train_labels.iloc[:,1], cnf.spoof_categories)
+
+    # Apply class balancing if specified
+    if cnf.class_balancing is not None:
+        cb = cnf.class_balancing
+        if cb == 'down':
+            value_counts = train_labels.iloc[:,1].value_counts()
+            train_downsampled = [train_labels[train_labels.iloc[:,1] == value_counts.index[-1]]]
+            for value in value_counts.index[:-1]:
+                train_downsampled.append(
+                    train_labels[train_labels.iloc[:,1] == value].sample(value_counts.min()))
+            train_labels = pd.concat(train_downsampled).reset_index(drop=True)
+
+    # Initialize the training DataLoader with the balanced dataset
+    train_loader = DataLoader(
+        CelebADatasetFT(cnf.train_path, train_labels, train_transform, 
+                        None, ft_size=cnf.ft_size), 
+        batch_size=cnf.batch_size,
+        shuffle=True, pin_memory=True, num_workers=8
+    )
+      
+    # No validation loader as you are using test dataset for validation
+    return train_loader
+
+
 
 def get_train_valid_loader(cnf):
     
@@ -173,7 +222,27 @@ def get_train_valid_loader(cnf):
     
     return train_loader, valid_loader
 
+def get_valid_loader(cnf):
+    valid_transform = T.Compose([
+        T.ToPILImage(),
+        # SquarePad(),
+        T.Resize(size=cnf.input_size),
+        T.ToTensor()
+    ])
 
+    valid_labels = pd.read_csv(cnf.labels_path)
+
+    if cnf.spoof_categories is not None:
+        valid_labels.iloc[:,1] = transform_labels(valid_labels.iloc[:,1],
+                                                  cnf.spoof_categories)
+
+    valid_loader = DataLoader(
+        CelebADataset(cnf.valid_path, valid_labels, valid_transform, None),
+        batch_size=cnf.batch_size, pin_memory=True, num_workers=8
+    )
+
+    return valid_loader
+    
 def get_test_loader(cnf):
     
     test_transform = T.Compose([

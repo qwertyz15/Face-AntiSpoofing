@@ -1,5 +1,7 @@
 # @hairymax
 
+import os
+import wandb
 import torch
 from torch import optim
 from torch.nn import CrossEntropyLoss, MSELoss
@@ -7,21 +9,28 @@ from tqdm import tqdm
 from tensorboardX import SummaryWriter
 
 from src.NN import MultiFTNet
-from src.dataset_loader import get_train_valid_loader
+from src.dataset_loader import get_train_valid_loader, get_train_loader, get_valid_loader
 from datetime import datetime
 
 
 class TrainMain:
-    def __init__(self, conf):
+    def __init__(self, conf, conf_val):
         self.conf = conf
+        self.conf_val = conf_val
         self.step = 0
         self.val_step = 0
         self.start_epoch = 0
-        self.train_loader, self.valid_loader = get_train_valid_loader(self.conf)
+        # self.train_loader, self.valid_loader = get_train_valid_loader(self.conf)
+        self.train_loader = get_train_loader(self.conf)
+        self.valid_loader = get_valid_loader(self.conf_val)
+        
         self.board_train_every = len(self.train_loader) // conf.board_loss_per_epoch
         self.board_valid_every = len(self.valid_loader) // conf.board_loss_per_epoch
+        
+        self.best_val_acc = 0
 
     def train_model(self):
+        wandb.init(project='minivision-fas-modified', config=self.conf)
         self._init_model_param()
         self._train_stage()
 
@@ -46,22 +55,19 @@ class TrainMain:
         run_acc = 0.
         run_loss_cls = 0.
         run_loss_ft = 0.
-        run_val_acc = 0.
-        run_val_loss_cls = 0.
-        
+
         is_first = True
 
         print('Board train loss every {} steps'.format(self.board_train_every))
-        print('Board valid loss every {} steps'.format(self.board_valid_every))
+
         for e in range(self.start_epoch, self.conf.epochs):
             if is_first:
                 self.writer = SummaryWriter(self.conf.log_path)
                 is_first = False
 
-            # Training
             print('Epoch {} started. lr: {}'.format(e, self.schedule_lr.get_last_lr()))
             self.model.train()
-            print('Training on {} batches.'.format(len(self.train_loader)))
+
             for sample, ft_sample, labels in tqdm(iter(self.train_loader)):
                 imgs = [sample, ft_sample]
 
@@ -74,42 +80,61 @@ class TrainMain:
                 self.step += 1
 
                 if self.step % self.board_train_every == 0 and self.step != 0:
-                    board_step = self.step // self.board_train_every
-                    self.writer.add_scalar('Loss/train', run_loss / self.board_train_every, board_step)
-                    self.writer.add_scalar('Acc/train', run_acc / self.board_train_every, board_step)
-                    self.writer.add_scalar('Loss_cls/train', run_loss_cls / self.board_train_every, board_step)
-                    self.writer.add_scalar('Loss_ft/train', run_loss_ft / self.board_train_every, board_step)
-                    self.writer.add_scalar('Learning_rate', self.optimizer.param_groups[0]['lr'], board_step)
+                    avg_loss = run_loss / self.board_train_every
+                    avg_acc = run_acc / self.board_train_every
+                    avg_loss_cls = run_loss_cls / self.board_train_every
+                    avg_loss_ft = run_loss_ft / self.board_train_every
+
+                    self.writer.add_scalar('Loss/train', avg_loss, self.step)
+                    self.writer.add_scalar('Acc/train', avg_acc, self.step)
+                    self.writer.add_scalar('Loss_cls/train', avg_loss_cls, self.step)
+                    self.writer.add_scalar('Loss_ft/train', avg_loss_ft, self.step)
+
+                    # Log metrics to wandb
+                    wandb.log({"Loss/train": avg_loss,
+                            "Acc/train": avg_acc,
+                            "Loss_cls/train": avg_loss_cls,
+                            "Loss_ft/train": avg_loss_ft,
+                            "Learning_rate": self.optimizer.param_groups[0]['lr']},
+                            step=self.step)
 
                     run_loss = 0.
                     run_acc = 0.
                     run_loss_cls = 0.
                     run_loss_ft = 0.
-                    
-            self.schedule_lr.step()
 
+            self.schedule_lr.step()
+            
             # Validation
             self.model.eval()
+            val_acc_total = 0.0
+            val_loss_cls_total = 0.0
             print('Validation on {} batches.'.format(len(self.valid_loader)))
+
             for sample, labels in tqdm(iter(self.valid_loader)):
                 with torch.no_grad():
                     acc, loss_cls = self._valid_batch_data(sample, labels)
-                run_val_acc += acc
-                run_val_loss_cls += loss_cls
+                val_acc_total += acc
+                val_loss_cls_total += loss_cls
 
-                self.val_step += 1
+            avg_val_acc = val_acc_total / len(self.valid_loader)
+            avg_val_loss_cls = val_loss_cls_total / len(self.valid_loader)
 
-                if self.val_step % self.board_valid_every == 0 and self.val_step != 0:
-                    board_step = self.val_step // self.board_valid_every
-                    self.writer.add_scalar('Acc/valid', run_val_acc / self.board_valid_every, board_step)
-                    self.writer.add_scalar('Loss_cls/valid', run_val_loss_cls / self.board_valid_every, board_step)
-                    run_val_acc = 0.
-                    run_val_loss_cls = 0.
-            
+            # Log average validation accuracy and loss to wandb and TensorBoard
+            wandb.log({"Avg_Acc/valid": avg_val_acc, "Avg_Loss_cls/valid": avg_val_loss_cls}, step=self.step)
+            self.writer.add_scalar('Acc/valid', avg_val_acc, self.step)
+            self.writer.add_scalar('Loss_cls/valid', avg_val_loss_cls, self.step)
+
+            # Check if this is the best model
+            if avg_val_acc > self.best_val_acc:
+                self.best_val_acc = avg_val_acc
+                self._save_best_model(e)
+                wandb.run.summary["best_val_acc"] = avg_val_acc
+                wandb.run.summary["best_epoch"] = e
+
             self._save_state('epoch-{}'.format(e))
-        
-        self.writer.close()
 
+        self.writer.close()
 
     def _train_batch_data(self, imgs, labels):
         self.optimizer.zero_grad()
@@ -166,3 +191,11 @@ class TrainMain:
         time_stamp = (str(datetime.now())[:-10]).replace(' ', '-').replace(':', '-')
         torch.save(self.model.state_dict(), save_path + '/' +
                    ('{}_{}_{}.pth'.format(time_stamp, job_name, stage)))
+        
+    def _save_best_model(self, epoch):
+        save_path = self.conf.model_path
+        job_name = self.conf.job_name
+        best_model_path = os.path.join(save_path, f'{job_name}_best_model.pth')
+        torch.save(self.model.state_dict(), best_model_path)
+        print(f"Best model (epoch {epoch}, val accuracy: {self.best_val_acc}) saved at {best_model_path}")
+        wandb.log({"best_val_acc": self.best_val_acc}, step=epoch)

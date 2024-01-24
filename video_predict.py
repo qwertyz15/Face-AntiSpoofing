@@ -56,7 +56,7 @@ if __name__ == "__main__":
     
     p = argparse.ArgumentParser(
         description="Spoofing attack detection on videostream")
-    p.add_argument("--input", "-i", type=str, default=None, 
+    p.add_argument("--input", "-i", type=str, default=0, 
                    help="Path to video for predictions")
     p.add_argument("--output", "-o", type=str, default=None,
                    help="Path to save processed video")
@@ -94,6 +94,7 @@ if __name__ == "__main__":
     
     # videowriter
     if args.output: 
+        fps = 24    	
         output = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*'XVID'), fps, frame_size)
     print("Video is processed. Press 'Q' or 'Esc' to quit")
     

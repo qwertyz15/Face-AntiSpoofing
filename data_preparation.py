@@ -6,8 +6,8 @@ import pandas as pd
 import argparse
 import cv2
 
-CELEBA_DIR = 'CelebA_Spoof/'
-CROP_DIR = 'CelebA_Spoof_crop/' 
+CELEBA_DIR = '/home/dev/Documents/datasets/spoof/CelebA_Spoof_/CelebA_Spoof/'
+CROP_DIR = '/home/dev/Documents/datasets/spoof/celebA_crop_224' 
 #spoof_types = [0, 1, 2, 3, 7, 8, 9] # Spoof атаки, которые оставляем
 
 def read_image(image_path, bbox_inc = 1.5):

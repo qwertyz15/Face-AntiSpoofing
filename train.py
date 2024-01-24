@@ -1,4 +1,4 @@
-from src.config import TrainConfig
+from src.config import TrainConfig, ValidConfig
 from src.train_main import TrainMain
 import argparse
 
@@ -23,14 +23,20 @@ if __name__ == "__main__":
         spoof_categories = [[0],[1,2,3],[7,8,9]]
     
     # create config    
-    cnf = TrainConfig(crop_dir=args.crop_dir,
+    cnf_train = TrainConfig(crop_dir=args.crop_dir,
                       input_size=args.input_size, 
                       batch_size=args.batch_size, 
                       spoof_categories=spoof_categories)
-    cnf.set_job(args.job_name)
-    print("Device:", cnf.device)
+    
+    cnf_val = ValidConfig(crop_dir=args.crop_dir,
+                      input_size=args.input_size, 
+                      batch_size=args.batch_size, 
+                      spoof_categories=spoof_categories)
+                      
+    cnf_train.set_job(args.job_name)
+    print("Device:", cnf_train.device)
     
     # training
-    trainer = TrainMain(cnf)
+    trainer = TrainMain(cnf_train, cnf_val)
     trainer.train_model()
     print('Finished')

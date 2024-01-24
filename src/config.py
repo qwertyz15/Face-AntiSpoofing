@@ -5,7 +5,7 @@ from datetime import datetime
 
 SNAPSHOT_PATH = './logs/snapshot'
 LOG_PATH = './logs/jobs'
-DATA_PATH = './CelebA_Spoof_crop'
+DATA_PATH = '/home/dev/Documents/datasets/spoof/celebA_crop_224'
 
 class CelebAattr(object):
     # indexes 0 - 39
@@ -110,6 +110,19 @@ class PretrainedConfig(object):
         self.input_size = input_size
         self.kernel_size = get_kernel(input_size, input_size)
         self.num_classes = num_classes
+
+class ValidConfig:
+    def __init__(self, device_id=0, input_size=128, batch_size=1, 
+                 spoof_categories='binary', crop_dir='data128'):
+        self.device = "cuda:{}".format(device_id) if torch.cuda.is_available() else "cpu"
+        self.input_size = input_size
+        self.batch_size = batch_size
+        self.spoof_categories = spoof_categories
+        self.valid_path = '{}/{}/test'.format(DATA_PATH, crop_dir)
+        self.labels_path = '{}/{}/test/test_target.csv'.format(DATA_PATH, crop_dir)
+
+        # Get the number of classes based on spoof categories
+        self.num_classes = get_num_classes(spoof_categories)
 
 
 class TestConfig(PretrainedConfig):
